@@ -1,0 +1,50 @@
+# Local trial of the whole stack:  docker compose up --build   then open http://localhost:8080
+# NOTE: not run by the author (no Docker in the build sandbox). Treat it as a starting point and report problems.
+# This is for trying WebPuente on your own computer. For a public server follow DEPLOYMENT_GUIDE.md.
+services:
+  db:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set in .env}
+      MYSQL_DATABASE: webpuente
+      MYSQL_USER: webpuente_user
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set in .env}
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    volumes: ["dbdata:/var/lib/mysql"]
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    build: ./backend
+    environment: &backend_env
+      DJANGO_SETTINGS_MODULE: core.settings.development
+      DEBUG: "false"
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?set in .env}
+      DB_NAME: webpuente
+      DB_USER: webpuente_user
+      DB_PASSWORD: ${MYSQL_PASSWORD:?set in .env}
+      DB_HOST: db
+      JOB_MODE: worker
+      ALLOWED_HOSTS: localhost,127.0.0.1,backend
+      FRONTEND_URL: http://localhost:8080
+    depends_on:
+      db: { condition: service_healthy }
+
+  worker:
+    build: ./backend
+    command: ["python", "manage.py", "run_worker"]
+    environment: *backend_env
+    depends_on:
+      db: { condition: service_healthy }
+      backend: { condition: service_started }
+
+  frontend:
+    build: ./frontend
+    ports: ["8080:80"]
+    depends_on: [backend]
+
+volumes:
+  dbdata:
